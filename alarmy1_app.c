@@ -60,7 +60,7 @@ void main(void) {
 	ret = 0;
 	while(ret != 1) {
 		ret = alarmy1_flag(fd);
-		usleep(500000);
+		usleep(2000000);
 	}
 
 	//TCP클라이언트

@@ -71,10 +71,16 @@ struct task_struct *test_task1 = NULL; //스레드1
 struct task_struct *test_task2 = NULL; //스레드2
 struct task_struct *test_task3 = NULL; //스레드3
 
+int isstop1 = 0;
+int isstop2 = 0;
+int isstop3 = 0;
+
 static struct workqueue_struct *my_wq = NULL; //워크큐
 struct work_struct my_work; //워크
 
 int bflag = 0;
+
+unsigned long flags;
 
 void setStep(int num, int p1, int p2, int p3, int p4) {
 	if(num == 1) { //왼쪽모터
@@ -225,6 +231,8 @@ int thread_func2(void *data) { //알람 쓰레드
 
 int thread_func3(void *data) { //초음파 스레드
 	int tmp = 0;
+	int value, i, j;
+	value = (300*8*64) / 360;
 
 	printk("Ultrasonic kthread is activated\n");
 	enable_irq(irq_num_us);
@@ -256,12 +264,24 @@ int thread_func3(void *data) { //초음파 스레드
 			if(test_task1) { //모터 스레드 멈추고
 				kthread_stop(test_task1);
 				printk("test kernel thread1 STOP\n");
+				isstop1 = 1;
 			}
-			turn_right(); //오른쪽으로 회전
+			//turn_right(); //오른쪽으로 회전
 
+			printk("turn_right\n");
+			for(i=0; i<value; i++) {
+				for(j=STEPS-1; j>=0; j--) {
+					if(kthread_should_stop()) return 0;
+					setStep(1, steps[j][0], steps[j][1], steps[j][2], steps[j][3]);
+					setStep(2, steps[j][0], steps[j][1], steps[j][2], steps[j][3]);
+					usleep_range(960, 961);
+				}
+			}
+			
 			if(kthread_should_stop()) break;
 			test_task1 = kthread_create(thread_func1, NULL, "my_thread1");
 			wake_up_process(test_task1); //회전 후 다시 직진
+			isstop1 = 0;
 		}
 
 		if(kthread_should_stop()) break;
@@ -278,15 +298,15 @@ static void my_wq_func(struct work_struct *work) { //버튼 클릭 후 할 일�
 	disable_irq(irq_num_us);
 
 	//모터, 스피커, 초음파 스레드 다 멈추기
-	if(test_task1) {
+	if(test_task1 && (isstop1 == 0)) {
 		kthread_stop(test_task1);
 		printk("test kernel thread1 STOP\n");
 	}
-	if(test_task2) {
+	if(test_task2 && (isstop2 == 0)) {
 		kthread_stop(test_task2);
 		printk("test kernel thread2 STOP\n");
 	}
-	if(test_task3) {
+	if(test_task3 && (isstop3 == 0)) {
 		kthread_stop(test_task3);
 		printk("test kernel thread3 STOP\n");
 	}
@@ -353,7 +373,7 @@ static irqreturn_t b_isr(int irq, void* dev_id) { //버튼 인터룹트 핸들�
 	int ret;
 
 	printk("button interrupt\n");
-
+	
 	if(my_wq) { //버튼누르면 할 일들은 워크큐로 처리
 		INIT_WORK(&my_work, my_wq_func);
 		ret = queue_work(my_wq, &my_work);
